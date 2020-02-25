@@ -19,13 +19,12 @@ import (
 )
 
 var (
-	_                     events.Event = (*Event)(nil)
-	channelRegExp                      = regexp.MustCompile(`^\/?channels\/([\w\-]+)\/messages(\/[^?]*)?(\?.*)?$`)
-	ctRegExp                           = regexp.MustCompile(`^(\/.*)?\/ct\/([^\/]+)$`)
-	errUnauthorizedAccess              = errors.New("missing or invalid credentials provided")
-	errMalformedTopic                  = errors.New("malformed topic")
-	errMalformedData                   = errors.New("malformed request data")
-	errMalformedSubtopic               = errors.New("malformed subtopic")
+	_                    events.Event = (*Event)(nil)
+	channelRegExp                     = regexp.MustCompile(`^\/?channels\/([\w\-]+)\/messages(\/[^?]*)?(\?.*)?$`)
+	ctRegExp                          = regexp.MustCompile(`^(\/.*)?\/ct\/([^\/]+)$`)
+	errMalformedTopic                 = errors.New("malformed topic")
+	errMalformedData                  = errors.New("malformed request data")
+	errMalformedSubtopic              = errors.New("malformed subtopic")
 )
 
 // Event implements events.Event interface
@@ -188,7 +187,11 @@ func (e *Event) Publish(clientID, topic string, payload []byte) {
 		Subtopic:    subtopic,
 		Payload:     payload,
 	}
-	e.mp.Publish(context.TODO(), "", msg)
+
+	if err := e.mp.Publish(context.TODO(), "", msg); err != nil {
+		e.logger.Info(fmt.Sprintf("Error in mqtt publish %s", err))
+		return
+	}
 }
 
 // Subscribe - after client sucesfully subscribed

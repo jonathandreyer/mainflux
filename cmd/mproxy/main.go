@@ -119,21 +119,13 @@ func main() {
 	go proxyMQTT(cfg, logger, evt, errs)
 
 	go func() {
-		c := make(chan os.Signal)
+		c := make(chan os.Signal, 1)
 		signal.Notify(c, syscall.SIGINT)
 		errs <- fmt.Errorf("%s", <-c)
 	}()
 
 	err = <-errs
 	logger.Error(fmt.Sprintf("mProxy terminated: %s", err))
-}
-
-func env(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-
-	return fallback
 }
 
 func loadConfig() config {

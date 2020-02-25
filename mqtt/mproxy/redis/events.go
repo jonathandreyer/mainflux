@@ -3,12 +3,6 @@
 
 package redis
 
-const (
-	mqttPrefix     = "mqtt."
-	mqttConnect    = mqttPrefix + "connect"
-	mqttDisconnect = mqttPrefix + "disconnect"
-)
-
 type event interface {
 	Encode() map[string]interface{}
 }

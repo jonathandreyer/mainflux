@@ -47,7 +47,9 @@ func (es EventStore) storeEvent(clientID, eventType string) error {
 		Values:       event.Encode(),
 	}
 
-	es.client.XAdd(record).Err()
+	if err := es.client.XAdd(record).Err(); err != nil {
+		return err
+	}
 
 	return nil
 }
