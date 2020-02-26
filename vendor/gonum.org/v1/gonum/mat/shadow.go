@@ -67,8 +67,6 @@ func (m *Dense) checkOverlapMatrix(a Matrix) bool {
 		amat = ar.RawMatrix()
 	case RawSymmetricer:
 		amat = generalFromSymmetric(ar.RawSymmetric())
-	case RawSymBander:
-		amat = generalFromSymmetricBand(ar.RawSymBand())
 	case RawTriangular:
 		amat = generalFromTriangular(ar.RawTriangular())
 	case RawVectorer:
@@ -94,8 +92,6 @@ func (s *SymDense) checkOverlapMatrix(a Matrix) bool {
 		amat = ar.RawMatrix()
 	case RawSymmetricer:
 		amat = generalFromSymmetric(ar.RawSymmetric())
-	case RawSymBander:
-		amat = generalFromSymmetricBand(ar.RawSymBand())
 	case RawTriangular:
 		amat = generalFromTriangular(ar.RawTriangular())
 	case RawVectorer:
@@ -132,8 +128,6 @@ func (t *TriDense) checkOverlapMatrix(a Matrix) bool {
 		amat = ar.RawMatrix()
 	case RawSymmetricer:
 		amat = generalFromSymmetric(ar.RawSymmetric())
-	case RawSymBander:
-		amat = generalFromSymmetricBand(ar.RawSymBand())
 	case RawTriangular:
 		amat = generalFromTriangular(ar.RawTriangular())
 	case RawVectorer:
@@ -200,43 +194,5 @@ func generalFromVector(a blas64.Vector, r, c int) blas64.General {
 		Cols:   c,
 		Stride: a.Inc,
 		Data:   a.Data,
-	}
-}
-
-func (s *SymBandDense) checkOverlap(a blas64.General) bool {
-	return checkOverlap(generalFromSymmetricBand(s.RawSymBand()), a)
-}
-
-func (s *SymBandDense) checkOverlapMatrix(a Matrix) bool {
-	if s == a {
-		return false
-	}
-	var amat blas64.General
-	switch ar := a.(type) {
-	default:
-		return false
-	case RawMatrixer:
-		amat = ar.RawMatrix()
-	case RawSymmetricer:
-		amat = generalFromSymmetric(ar.RawSymmetric())
-	case RawSymBander:
-		amat = generalFromSymmetricBand(ar.RawSymBand())
-	case RawTriangular:
-		amat = generalFromTriangular(ar.RawTriangular())
-	case RawVectorer:
-		r, c := a.Dims()
-		amat = generalFromVector(ar.RawVector(), r, c)
-	}
-	return s.checkOverlap(amat)
-}
-
-// generalFromSymmetricBand returns a blas64.General with the backing
-// data and dimensions of a.
-func generalFromSymmetricBand(a blas64.SymmetricBand) blas64.General {
-	return blas64.General{
-		Rows:   a.N,
-		Cols:   a.K + 1,
-		Data:   a.Data,
-		Stride: a.Stride,
 	}
 }

@@ -12,10 +12,9 @@
 
 A native Go implementation of the OPC/UA Binary Protocol.
 
-You need go1.12 or higher. We test with the current and previous Go version.
+You need go1.11 or higher. We test with the current and previous Go version.
 
 [![CircleCI](https://circleci.com/gh/gopcua/opcua.svg?style=shield)](https://circleci.com/gh/gopcua/opcua)
-[![GitHub](https://github.com/gopcua/opcua/workflows/gopuca/badge.svg)](https://github.com/gopcua/opcua/actions)
 [![GoDoc](https://godoc.org/github.com/gopcua/opcua?status.svg)](https://godoc.org/github.com/gopcua/opcua)
 [![GolangCI](https://golangci.com/badges/github.com/gopcua/opcua.svg)](https://golangci.com/r/github.com/gopcua/opcua)
 [![License](https://img.shields.io/github/license/mashape/apistatus.svg)](https://github.com/gopcua/opcua/blob/master/LICENSE)
@@ -24,7 +23,7 @@ You need go1.12 or higher. We test with the current and previous Go version.
 ## Quickstart
 
 ```sh
-# make sure you have go1.12 or higher
+# make sure you have go1.11 or higher
 
 # install library
 go get -u github.com/gopcua/opcua
@@ -115,11 +114,11 @@ The current set of supported services is only for the high-level client.
 |                             | AddReferences                 |           |              |
 |                             | DeleteNodes                   |           |              |
 |                             | DeleteReferences              |           |              |
-| View Service Set            | Browse                        | Yes       |              |
-|                             | BrowseNext                    | Yes       |              |
+| View Service Set            | Browse                        | Started   |              |
+|                             | BrowseNext                    | Started   |              |
 |                             | TranslateBrowsePathsToNodeIds |           |              |
-|                             | RegisterNodes                 | Yes       |              |
-|                             | UnregisterNodes               | Yes       |              |
+|                             | RegisterNodes                 |           |              |
+|                             | UnregisterNodes               |           |              |
 | Query Service Set           | QueryFirst                    |           |              |
 |                             | QueryNext                     |           |              |
 | Attribute Service Set       | Read                          | Yes       |              |

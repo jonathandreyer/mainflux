@@ -30,23 +30,6 @@ type Matrix interface {
 	T() Matrix
 }
 
-// allMatrix represents the extra set of methods that all mat Matrix types
-// should satisfy. This is used to enforce compile-time consistency between the
-// Dense types, especially helpful when adding new features.
-type allMatrix interface {
-	Reseter
-	IsEmpty() bool
-	Zero()
-}
-
-// denseMatrix represents the extra set of methods that all Dense Matrix types
-// should satisfy. This is used to enforce compile-time consistency between the
-// Dense types, especially helpful when adding new features.
-type denseMatrix interface {
-	DiagView() Diagonal
-	Tracer
-}
-
 var (
 	_ Matrix       = Transpose{}
 	_ Untransposer = Transpose{}
@@ -157,9 +140,8 @@ type ClonerFrom interface {
 // restricted operation. This is commonly used when the matrix is being used as a workspace
 // or temporary matrix.
 //
-// If the matrix is a view, using Reset may result in data corruption in elements outside
-// the view. Similarly, if the matrix shares backing data with another variable, using
-// Reset may lead to unexpected changes in data values.
+// If the matrix is a view, using the reset matrix may result in data corruption in elements
+// outside the view.
 type Reseter interface {
 	Reset()
 }
@@ -598,7 +580,7 @@ func Max(a Matrix) float64 {
 	if r == 0 || c == 0 {
 		panic(ErrShape)
 	}
-	// Max(A) = Max(Aᵀ)
+	// Max(A) = Max(A^T)
 	aU, _ := untranspose(a)
 	switch m := aU.(type) {
 	case RawMatrixer:
@@ -673,7 +655,7 @@ func Min(a Matrix) float64 {
 	if r == 0 || c == 0 {
 		panic(ErrShape)
 	}
-	// Min(A) = Min(Aᵀ)
+	// Min(A) = Min(A^T)
 	aU, _ := untranspose(a)
 	switch m := aU.(type) {
 	case RawMatrixer:

@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/gopcua/opcua/debug"
 	"github.com/gopcua/opcua/errors"
 	"github.com/gopcua/opcua/id"
 	"github.com/gopcua/opcua/ua"
@@ -166,7 +165,6 @@ func (s *Subscription) Run(ctx context.Context) {
 			case err != nil:
 				// irrecoverable error
 				s.c.notifySubscriptionsOfError(ctx, res, err)
-				debug.Printf("subscription %v Run loop stopped", s.SubscriptionID)
 				return
 			}
 

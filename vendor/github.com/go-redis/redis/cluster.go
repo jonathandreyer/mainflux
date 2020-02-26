@@ -17,6 +17,7 @@ import (
 	"github.com/go-redis/redis/internal/hashtag"
 	"github.com/go-redis/redis/internal/pool"
 	"github.com/go-redis/redis/internal/proto"
+	"github.com/go-redis/redis/internal/singleflight"
 )
 
 var errClusterNoNodes = fmt.Errorf("redis: cluster has no nodes")
@@ -242,6 +243,8 @@ type clusterNodes struct {
 	clusterAddrs []string
 	closed       bool
 
+	nodeCreateGroup singleflight.Group
+
 	_generation uint32 // atomic
 }
 
@@ -344,6 +347,11 @@ func (c *clusterNodes) GetOrCreate(addr string) (*clusterNode, error) {
 		return node, nil
 	}
 
+	v, err := c.nodeCreateGroup.Do(addr, func() (interface{}, error) {
+		node := newClusterNode(c.opt, addr)
+		return node, nil
+	})
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -353,13 +361,15 @@ func (c *clusterNodes) GetOrCreate(addr string) (*clusterNode, error) {
 
 	node, ok := c.allNodes[addr]
 	if ok {
+		_ = v.(*clusterNode).Close()
 		return node, err
 	}
-
-	node = newClusterNode(c.opt, addr)
+	node = v.(*clusterNode)
 
 	c.allAddrs = appendIfNotExists(c.allAddrs, addr)
-	c.clusterAddrs = append(c.clusterAddrs, addr)
+	if err == nil {
+		c.clusterAddrs = append(c.clusterAddrs, addr)
+	}
 	c.allNodes[addr] = node
 
 	return node, err
@@ -703,12 +713,12 @@ func (c *ClusterClient) WithContext(ctx context.Context) *ClusterClient {
 	if ctx == nil {
 		panic("nil context")
 	}
-	c2 := c.clone()
+	c2 := c.copy()
 	c2.ctx = ctx
 	return c2
 }
 
-func (c *ClusterClient) clone() *ClusterClient {
+func (c *ClusterClient) copy() *ClusterClient {
 	cp := *c
 	cp.init()
 	return &cp
@@ -772,11 +782,6 @@ func cmdSlot(cmd Cmder, pos int) int {
 }
 
 func (c *ClusterClient) cmdSlot(cmd Cmder) int {
-	args := cmd.Args()
-	if args[0] == "cluster" && args[1] == "getkeysinslot" {
-		return args[2].(int)
-	}
-
 	cmdInfo := c.cmdInfo(cmd.Name())
 	return cmdSlot(cmd, cmdFirstKeyPos(cmd, cmdInfo))
 }
@@ -788,7 +793,7 @@ func (c *ClusterClient) cmdSlotAndNode(cmd Cmder) (int, *clusterNode, error) {
 	}
 
 	cmdInfo := c.cmdInfo(cmd.Name())
-	slot := c.cmdSlot(cmd)
+	slot := cmdSlot(cmd, cmdFirstKeyPos(cmd, cmdInfo))
 
 	if c.opt.ReadOnly && cmdInfo != nil && cmdInfo.ReadOnly {
 		if c.opt.RouteByLatency {
@@ -849,12 +854,15 @@ func (c *ClusterClient) Watch(fn func(*Tx) error, keys ...string) error {
 		if err == nil {
 			break
 		}
-		if err != Nil {
+
+		if internal.IsRetryableError(err, true) {
 			c.state.LazyReload()
+			continue
 		}
 
 		moved, ask, addr := internal.IsMovedError(err)
 		if moved || ask {
+			c.state.LazyReload()
 			node, err = c.nodes.GetOrCreate(addr)
 			if err != nil {
 				return err
@@ -862,15 +870,11 @@ func (c *ClusterClient) Watch(fn func(*Tx) error, keys ...string) error {
 			continue
 		}
 
-		if err == pool.ErrClosed || internal.IsReadOnlyError(err) {
+		if err == pool.ErrClosed {
 			node, err = c.slotMasterNode(slot)
 			if err != nil {
 				return err
 			}
-			continue
-		}
-
-		if internal.IsRetryableError(err, true) {
 			continue
 		}
 
@@ -938,9 +942,6 @@ func (c *ClusterClient) defaultProcess(cmd Cmder) error {
 		if err == nil {
 			break
 		}
-		if err != Nil {
-			c.state.LazyReload()
-		}
 
 		// If slave is loading - pick another node.
 		if c.opt.ReadOnly && internal.IsLoadingError(err) {
@@ -949,23 +950,9 @@ func (c *ClusterClient) defaultProcess(cmd Cmder) error {
 			continue
 		}
 
-		var moved bool
-		var addr string
-		moved, ask, addr = internal.IsMovedError(err)
-		if moved || ask {
-			node, err = c.nodes.GetOrCreate(addr)
-			if err != nil {
-				break
-			}
-			continue
-		}
-
-		if err == pool.ErrClosed || internal.IsReadOnlyError(err) {
-			node = nil
-			continue
-		}
-
 		if internal.IsRetryableError(err, true) {
+			c.state.LazyReload()
+
 			// First retry the same node.
 			if attempt == 0 {
 				continue
@@ -976,6 +963,24 @@ func (c *ClusterClient) defaultProcess(cmd Cmder) error {
 			if err != nil {
 				break
 			}
+			continue
+		}
+
+		var moved bool
+		var addr string
+		moved, ask, addr = internal.IsMovedError(err)
+		if moved || ask {
+			c.state.LazyReload()
+
+			node, err = c.nodes.GetOrCreate(addr)
+			if err != nil {
+				break
+			}
+			continue
+		}
+
+		if err == pool.ErrClosed {
+			node = nil
 			continue
 		}
 
@@ -1198,7 +1203,6 @@ func (c *ClusterClient) WrapProcessPipeline(
 	fn func(oldProcess func([]Cmder) error) func([]Cmder) error,
 ) {
 	c.processPipeline = fn(c.processPipeline)
-	c.processTxPipeline = fn(c.processTxPipeline)
 }
 
 func (c *ClusterClient) defaultProcessPipeline(cmds []Cmder) error {
@@ -1528,51 +1532,40 @@ func (c *ClusterClient) txPipelineReadQueued(
 	return nil
 }
 
-func (c *ClusterClient) pubSub() *PubSub {
+func (c *ClusterClient) pubSub(channels []string) *PubSub {
 	var node *clusterNode
 	pubsub := &PubSub{
 		opt: c.opt.clientOptions(),
 
 		newConn: func(channels []string) (*pool.Conn, error) {
-			if node != nil {
-				panic("node != nil")
-			}
+			if node == nil {
+				var slot int
+				if len(channels) > 0 {
+					slot = hashtag.Slot(channels[0])
+				} else {
+					slot = -1
+				}
 
-			var err error
-			if len(channels) > 0 {
-				slot := hashtag.Slot(channels[0])
-				node, err = c.slotMasterNode(slot)
-			} else {
-				node, err = c.nodes.Random()
+				masterNode, err := c.slotMasterNode(slot)
+				if err != nil {
+					return nil, err
+				}
+				node = masterNode
 			}
-			if err != nil {
-				return nil, err
-			}
-
-			cn, err := node.Client.newConn()
-			if err != nil {
-				node = nil
-
-				return nil, err
-			}
-
-			return cn, nil
+			return node.Client.newConn()
 		},
 		closeConn: func(cn *pool.Conn) error {
-			err := node.Client.connPool.CloseConn(cn)
-			node = nil
-			return err
+			return node.Client.connPool.CloseConn(cn)
 		},
 	}
 	pubsub.init()
-
 	return pubsub
 }
 
 // Subscribe subscribes the client to the specified channels.
 // Channels can be omitted to create empty subscription.
 func (c *ClusterClient) Subscribe(channels ...string) *PubSub {
-	pubsub := c.pubSub()
+	pubsub := c.pubSub(channels)
 	if len(channels) > 0 {
 		_ = pubsub.Subscribe(channels...)
 	}
@@ -1582,7 +1575,7 @@ func (c *ClusterClient) Subscribe(channels ...string) *PubSub {
 // PSubscribe subscribes the client to the given patterns.
 // Patterns can be omitted to create empty subscription.
 func (c *ClusterClient) PSubscribe(channels ...string) *PubSub {
-	pubsub := c.pubSub()
+	pubsub := c.pubSub(channels)
 	if len(channels) > 0 {
 		_ = pubsub.PSubscribe(channels...)
 	}

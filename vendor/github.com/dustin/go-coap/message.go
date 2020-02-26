@@ -210,7 +210,7 @@ var optionDefs = [256]optionDef{
 }
 
 // MediaType specifies the content type of a message.
-type MediaType uint16
+type MediaType byte
 
 // Content types.
 const (

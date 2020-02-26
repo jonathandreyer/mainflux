@@ -34,30 +34,12 @@ func (q *queryExecutor) attemptQuery(ctx context.Context, qry ExecutableQuery, c
 	return iter
 }
 
-func (q *queryExecutor) speculate(ctx context.Context, qry ExecutableQuery, sp SpeculativeExecutionPolicy, results chan *Iter) *Iter {
-	ticker := time.NewTicker(sp.Delay())
-	defer ticker.Stop()
-
-	for i := 0; i < sp.Attempts(); i++ {
-		select {
-		case <-ticker.C:
-			go q.run(ctx, qry, results)
-		case <-ctx.Done():
-			return &Iter{err: ctx.Err()}
-		case iter := <-results:
-			return iter
-		}
-	}
-
-	return nil
-}
-
 func (q *queryExecutor) executeQuery(qry ExecutableQuery) (*Iter, error) {
 	// check if the query is not marked as idempotent, if
 	// it is, we force the policy to NonSpeculative
 	sp := qry.speculativeExecutionPolicy()
-	if !qry.IsIdempotent() || sp.Attempts() == 0 {
-		return q.do(qry.Context(), qry), nil
+	if !qry.IsIdempotent() {
+		sp = NonSpeculativeExecution{}
 	}
 
 	ctx, cancel := context.WithCancel(qry.Context())
@@ -71,9 +53,22 @@ func (q *queryExecutor) executeQuery(qry ExecutableQuery) (*Iter, error) {
 	// The speculative executions are launched _in addition_ to the main
 	// execution, on a timer. So Speculation{2} would make 3 executions running
 	// in total.
-	if iter := q.speculate(ctx, qry, sp, results); iter != nil {
-		return iter, nil
-	}
+	go func() {
+		// setup a ticker
+		ticker := time.NewTicker(sp.Delay())
+		defer ticker.Stop()
+
+		for i := 0; i < sp.Attempts(); i++ {
+			select {
+			case <-ticker.C:
+				// Launch the additional execution
+				go q.run(ctx, qry, results)
+			case <-ctx.Done():
+				// not starting additional executions
+				return
+			}
+		}
+	}()
 
 	select {
 	case iter := <-results:
@@ -112,15 +107,7 @@ func (q *queryExecutor) do(ctx context.Context, qry ExecutableQuery) *Iter {
 		iter = q.attemptQuery(ctx, qry, conn)
 		iter.host = selectedHost.Info()
 		// Update host
-		switch iter.err {
-		case context.Canceled, context.DeadlineExceeded, ErrNotFound:
-			// those errors represents logical errors, they should not count
-			// toward removing a node from the pool
-			selectedHost.Mark(nil)
-			return iter
-		default:
-			selectedHost.Mark(iter.err)
-		}
+		selectedHost.Mark(iter.err)
 
 		// Exit if the query was successful
 		// or no retry policy defined or retry attempts were reached
@@ -153,7 +140,7 @@ func (q *queryExecutor) do(ctx context.Context, qry ExecutableQuery) *Iter {
 	return &Iter{err: ErrNoConnections}
 }
 
-func (q *queryExecutor) run(ctx context.Context, qry ExecutableQuery, results chan<- *Iter) {
+func (q *queryExecutor) run(ctx context.Context, qry ExecutableQuery, results chan *Iter) {
 	select {
 	case results <- q.do(ctx, qry):
 	case <-ctx.Done():
