@@ -200,7 +200,7 @@ func (e *Event) Subscribe(clientID string, topics []string) {
 }
 
 // Unubscribe - after client unsubscribed
-func (e *Event) Unubscribe(clientID string, topics []string) {
+func (e *Event) Unsubscribe(clientID string, topics []string) {
 
 	e.logger.Info(fmt.Sprintf("Unubscribe() - clientID: %s, topics: %s", clientID, strings.Join(topics, ",")))
 }
