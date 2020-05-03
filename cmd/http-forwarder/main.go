@@ -64,13 +64,6 @@ func main() {
 	}
 	defer b.Close()
 
-	/*client, err := influxdata.NewHTTPClient(clientCfg)
-	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to create InfluxDB client: %s", err))
-		os.Exit(1)
-	}
-	defer client.Close()*/
-
 	repo := httpforwarder.New(cfg.url)
 
 	counter, latency := makeMetrics()
