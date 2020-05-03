@@ -28,7 +28,7 @@ const (
 	defNatsURL         = "nats://localhost:4222"
 	defLogLevel        = "error"
 	defPort            = "8990"
-	defURL             = "localhost"
+	defURL             = "http://localhost:9000"
 	defSubjectsCfgPath = "/config/subjects.toml"
 	defContentType     = "application/senml+json"
 
