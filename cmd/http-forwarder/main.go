@@ -103,14 +103,14 @@ func loadConfigs() config {
 
 func makeMetrics() (*kitprometheus.Counter, *kitprometheus.Summary) {
 	counter := kitprometheus.NewCounterFrom(stdprometheus.CounterOpts{
-		Namespace: "httpforwarder",
+		Namespace: "http_forwarder",
 		Subsystem: "message_writer",
 		Name:      "request_count",
 		Help:      "Number of database inserts.",
 	}, []string{"method"})
 
 	latency := kitprometheus.NewSummaryFrom(stdprometheus.SummaryOpts{
-		Namespace: "httpforwarder",
+		Namespace: "http_forwarder",
 		Subsystem: "message_writer",
 		Name:      "request_latency_microseconds",
 		Help:      "Total duration of inserts in microseconds.",

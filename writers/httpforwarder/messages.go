@@ -37,9 +37,9 @@ func New(url string) writers.MessageRepository {
 func (repo *httpforwarderRepo) Save(messages ...senml.Message) error {
 	msgs := make(map[string][]*fields)
 	for _, msg := range messages {
-		_t := repo.fullTopic(&msg)
-		_fields := repo.fieldsOf(&msg)
-		msgs[_t] = append(msgs[_t], &_fields)
+		t := repo.fullTopic(&msg)
+		fields := repo.fieldsOf(&msg)
+		msgs[t] = append(msgs[t], &fields)
 	}
 
 	for topic, msg := range msgs {
@@ -62,7 +62,7 @@ func (repo *httpforwarderRepo) Save(messages ...senml.Message) error {
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		if resp.StatusCode != http.StatusOK {
 			return errors.Wrap(errSaveMessage, errors.New(resp.Status))
 		}
 	}
@@ -71,8 +71,8 @@ func (repo *httpforwarderRepo) Save(messages ...senml.Message) error {
 }
 
 func (repo *httpforwarderRepo) fullTopic(msg *senml.Message) string {
-	_t := fmt.Sprintf("channels.%s.%s", msg.Channel, msg.Subtopic)
-	return strings.ReplaceAll(_t, ".", "/")
+	t := fmt.Sprintf("channels.%s.%s", msg.Channel, msg.Subtopic)
+	return strings.ReplaceAll(t, ".", "/")
 }
 
 func (repo *httpforwarderRepo) fieldsOf(msg *senml.Message) fields {

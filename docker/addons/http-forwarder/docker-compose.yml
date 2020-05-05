@@ -18,7 +18,7 @@ services:
     container_name: mainflux-http-forwarder
     restart: on-failure
     environment:
-      MF_HTTP_FORWARDER_LOG_LEVEL: debug
+      MF_HTTP_FORWARDER_LOG_LEVEL: ${MF_HTTP_FORWARDER_LOG_LEVEL}
       MF_NATS_URL: ${MF_NATS_URL}
       MF_HTTP_FORWARDER_PORT: ${MF_HTTP_FORWARDER_PORT}
       MF_HTTP_FORWARDER_URL: ${MF_HTTP_FORWARDER_URL}
