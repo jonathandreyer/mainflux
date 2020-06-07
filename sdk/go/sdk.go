@@ -24,6 +24,9 @@ const (
 const minPassLen = 8
 
 var (
+	// ErrUnauthorized indicates that entity creation failed.
+	ErrUnauthorized = errors.New("unauthorized, missing credentials")
+
 	// ErrFailedCreation indicates that entity creation failed.
 	ErrFailedCreation = errors.New("failed to create entity")
 
@@ -54,6 +57,15 @@ var (
 
 	// ErrFetchVersion indicates that fetching of version failed.
 	ErrFetchVersion = errors.New("failed to fetch version")
+
+	// ErrFailedWhitelist failed to whitelist configs
+	ErrFailedWhitelist = errors.New("failed to whitelist")
+
+	// ErrCerts indicates error fetching certificates.
+	ErrCerts = errors.New("failed to fetch certs data")
+
+	// ErrCertsRemove indicates failure while cleaning up from the Certs service.
+	ErrCertsRemove = errors.New("failed to remove certificate")
 )
 
 // ContentType represents all possible content types.
@@ -162,26 +174,36 @@ type SDK interface {
 	// Version returns used mainflux version.
 	Version() (string, error)
 
-	// AddBootstrap add boostrap configuration
-	AddBootstrap(key string, cfg BoostrapConfig) (string, error)
+	// AddBootstrap add bootstrap configuration
+	AddBootstrap(token string, cfg BootstrapConfig) (string, error)
 
-	// View returns Thing Config with given ID belonging to the user identified by the given key.
-	ViewBoostrap(key, id string) (BoostrapConfig, error)
+	// View returns Thing Config with given ID belonging to the user identified by the given token.
+	ViewBootstrap(token, id string) (BootstrapConfig, error)
 
 	// Update updates editable fields of the provided Config.
-	UpdateBoostrap(key string, cfg BoostrapConfig) error
+	UpdateBootstrap(token string, cfg BootstrapConfig) error
 
-	// Remove removes Config with specified key that belongs to the user identified by the given key.
-	RemoveBoostrap(key, id string) error
+	// Remove removes Config with specified token that belongs to the user identified by the given token.
+	RemoveBootstrap(token, id string) error
 
-	// View returns Thing Config with given ID belonging to the user identified by the given key.
-	Boostrap(key, id string) (BoostrapConfig, error)
+	// Bootstrap returns Config to the Thing with provided external ID using external key.
+	Bootstrap(externalKey, externalID string) (BootstrapConfig, error)
+
+	// Whitelist updates Thing state Config with given ID belonging to the user identified by the given token.
+	Whitelist(token string, cfg BootstrapConfig) error
+
+	// Cert issues a certificate for a thing required for mtls.
+	Cert(thingID, thingKey, token string) (Cert, error)
+
+	// RemoveCert remove a certificate
+	RemoveCert(id, token string) error
 }
 
 type mfSDK struct {
 	baseURL           string
 	readerURL         string
 	bootstrapURL      string
+	certsURL          string
 	readerPrefix      string
 	usersPrefix       string
 	thingsPrefix      string
@@ -197,6 +219,7 @@ type Config struct {
 	BaseURL           string
 	ReaderURL         string
 	BootstrapURL      string
+	CertsURL          string
 	ReaderPrefix      string
 	UsersPrefix       string
 	ThingsPrefix      string
@@ -212,6 +235,7 @@ func NewSDK(conf Config) SDK {
 		baseURL:           conf.BaseURL,
 		readerURL:         conf.ReaderURL,
 		bootstrapURL:      conf.BootstrapURL,
+		certsURL:          conf.CertsURL,
 		readerPrefix:      conf.ReaderPrefix,
 		usersPrefix:       conf.UsersPrefix,
 		thingsPrefix:      conf.ThingsPrefix,

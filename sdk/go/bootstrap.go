@@ -16,13 +16,14 @@ import (
 
 const configsEndpoint = "configs"
 const bootstrapEndpoint = "bootstrap"
+const whitelistEndpoint = "state"
 
-// BoostrapConfig represents Configuration entity. It wraps information about external entity
+// BootstrapConfig represents Configuration entity. It wraps information about external entity
 // as well as info about corresponding Mainflux entities.
 // MFThing represents corresponding Mainflux Thing ID.
 // MFKey is key of corresponding Mainflux Thing.
 // MFChannels is a list of Mainflux Channels corresponding Mainflux Thing connects to.
-type BoostrapConfig struct {
+type BootstrapConfig struct {
 	ThingID     string    `json:"thing_id,omitempty"`
 	Channels    []string  `json:"channels,omitempty"`
 	ExternalID  string    `json:"external_id,omitempty"`
@@ -38,7 +39,7 @@ type BoostrapConfig struct {
 	State       int       `json:"state,omitempty"`
 }
 
-func (sdk mfSDK) AddBootstrap(key string, cfg BoostrapConfig) (string, error) {
+func (sdk mfSDK) AddBootstrap(token string, cfg BootstrapConfig) (string, error) {
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return "", err
@@ -51,7 +52,7 @@ func (sdk mfSDK) AddBootstrap(key string, cfg BoostrapConfig) (string, error) {
 		return "", err
 	}
 
-	resp, err := sdk.sendRequest(req, key, string(CTJSON))
+	resp, err := sdk.sendRequest(req, token, string(CTJSON))
 	if err != nil {
 		return "", err
 	}
@@ -65,39 +66,70 @@ func (sdk mfSDK) AddBootstrap(key string, cfg BoostrapConfig) (string, error) {
 	return id, nil
 }
 
-func (sdk mfSDK) ViewBoostrap(key, id string) (BoostrapConfig, error) {
+func (sdk mfSDK) Whitelist(token string, cfg BootstrapConfig) error {
+	data, err := json.Marshal(BootstrapConfig{State: cfg.State})
+	if err != nil {
+		return errors.Wrap(ErrFailedWhitelist, err)
+	}
+
+	if cfg.MFThing == "" {
+		return ErrFailedWhitelist
+	}
+
+	endpoint := fmt.Sprintf("%s/%s", whitelistEndpoint, cfg.MFThing)
+	url := createURL(sdk.bootstrapURL, sdk.bootstrapPrefix, endpoint)
+
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
+	if err != nil {
+		return errors.Wrap(ErrFailedWhitelist, err)
+	}
+
+	resp, err := sdk.sendRequest(req, token, string(CTJSON))
+	if err != nil {
+		return errors.Wrap(ErrFailedWhitelist, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return errors.Wrap(ErrFailedWhitelist, errors.New(resp.Status))
+	}
+
+	return nil
+}
+
+func (sdk mfSDK) ViewBootstrap(token, id string) (BootstrapConfig, error) {
 	endpoint := fmt.Sprintf("%s/%s", configsEndpoint, id)
 	url := createURL(sdk.bootstrapURL, sdk.bootstrapPrefix, endpoint)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return BoostrapConfig{}, err
+		return BootstrapConfig{}, err
 	}
 
-	resp, err := sdk.sendRequest(req, key, string(CTJSON))
+	resp, err := sdk.sendRequest(req, token, string(CTJSON))
 	if err != nil {
-		return BoostrapConfig{}, err
+		return BootstrapConfig{}, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return BoostrapConfig{}, err
+		return BootstrapConfig{}, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return BoostrapConfig{}, errors.Wrap(ErrFailedFetch, errors.New(resp.Status))
+		return BootstrapConfig{}, errors.Wrap(ErrFailedFetch, errors.New(resp.Status))
 	}
 
-	var bc BoostrapConfig
+	var bc BootstrapConfig
 	if err := json.Unmarshal(body, &bc); err != nil {
-		return BoostrapConfig{}, err
+		return BootstrapConfig{}, err
 	}
 
 	return bc, nil
 }
 
-func (sdk mfSDK) UpdateBoostrap(key string, cfg BoostrapConfig) error {
+func (sdk mfSDK) UpdateBootstrap(token string, cfg BootstrapConfig) error {
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return err
@@ -111,7 +143,7 @@ func (sdk mfSDK) UpdateBoostrap(key string, cfg BoostrapConfig) error {
 		return err
 	}
 
-	resp, err := sdk.sendRequest(req, key, string(CTJSON))
+	resp, err := sdk.sendRequest(req, token, string(CTJSON))
 	if err != nil {
 		return err
 	}
@@ -123,7 +155,7 @@ func (sdk mfSDK) UpdateBoostrap(key string, cfg BoostrapConfig) error {
 	return nil
 }
 
-func (sdk mfSDK) RemoveBoostrap(key, id string) error {
+func (sdk mfSDK) RemoveBootstrap(token, id string) error {
 	endpoint := fmt.Sprintf("%s/%s", configsEndpoint, id)
 	url := createURL(sdk.bootstrapURL, sdk.bootstrapPrefix, endpoint)
 
@@ -132,7 +164,7 @@ func (sdk mfSDK) RemoveBoostrap(key, id string) error {
 		return err
 	}
 
-	resp, err := sdk.sendRequest(req, key, string(CTJSON))
+	resp, err := sdk.sendRequest(req, token, string(CTJSON))
 	if err != nil {
 		return err
 	}
@@ -144,33 +176,33 @@ func (sdk mfSDK) RemoveBoostrap(key, id string) error {
 	return nil
 }
 
-func (sdk mfSDK) Boostrap(key, id string) (BoostrapConfig, error) {
-	endpoint := fmt.Sprintf("%s/%s", bootstrapEndpoint, id)
+func (sdk mfSDK) Bootstrap(externalKey, externalID string) (BootstrapConfig, error) {
+	endpoint := fmt.Sprintf("%s/%s", bootstrapEndpoint, externalID)
 	url := createURL(sdk.bootstrapURL, sdk.bootstrapPrefix, endpoint)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return BoostrapConfig{}, err
+		return BootstrapConfig{}, err
 	}
 
-	resp, err := sdk.sendRequest(req, key, string(CTJSON))
+	resp, err := sdk.sendRequest(req, externalKey, string(CTJSON))
 	if err != nil {
-		return BoostrapConfig{}, err
+		return BootstrapConfig{}, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return BoostrapConfig{}, err
+		return BootstrapConfig{}, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return BoostrapConfig{}, errors.Wrap(ErrFailedFetch, errors.New(resp.Status))
+		return BootstrapConfig{}, errors.Wrap(ErrFailedFetch, errors.New(resp.Status))
 	}
 
-	var bc BoostrapConfig
+	var bc BootstrapConfig
 	if err := json.Unmarshal(body, &bc); err != nil {
-		return BoostrapConfig{}, err
+		return BootstrapConfig{}, err
 	}
 
 	return bc, nil

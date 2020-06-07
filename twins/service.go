@@ -10,9 +10,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/mainflux/mainflux/broker"
 	"github.com/mainflux/mainflux/errors"
 	"github.com/mainflux/mainflux/logger"
+	"github.com/mainflux/mainflux/messaging"
 
 	"github.com/mainflux/mainflux"
 	"github.com/mainflux/senml"
@@ -52,11 +52,6 @@ type Service interface {
 	// ID belonging to the user identified by the provided key.
 	ViewTwin(ctx context.Context, token, id string) (tw Twin, err error)
 
-	// ViewTwinByThing retrieves data about subset of twins that represent
-	// specified thing belong to the user identified by
-	// the provided key.
-	ViewTwinByThing(ctx context.Context, token, thingid string) (Twin, error)
-
 	// RemoveTwin removes the twin identified with the provided ID, that
 	// belongs to the user identified by the provided key.
 	RemoveTwin(ctx context.Context, token, id string) (err error)
@@ -70,7 +65,7 @@ type Service interface {
 	ListStates(ctx context.Context, token string, offset uint64, limit uint64, id string) (StatesPage, error)
 
 	// SaveStates persists states into database
-	SaveStates(msg *broker.Message) error
+	SaveStates(msg *messaging.Message) error
 }
 
 const (
@@ -95,7 +90,7 @@ var crudOp = map[string]string{
 }
 
 type twinsService struct {
-	broker    broker.Nats
+	publisher messaging.Publisher
 	auth      mainflux.AuthNServiceClient
 	twins     TwinRepository
 	states    StateRepository
@@ -107,9 +102,9 @@ type twinsService struct {
 var _ Service = (*twinsService)(nil)
 
 // New instantiates the twins service implementation.
-func New(broker broker.Nats, auth mainflux.AuthNServiceClient, twins TwinRepository, sr StateRepository, idp IdentityProvider, chann string, logger logger.Logger) Service {
+func New(publisher messaging.Publisher, auth mainflux.AuthNServiceClient, twins TwinRepository, sr StateRepository, idp IdentityProvider, chann string, logger logger.Logger) Service {
 	return &twinsService{
-		broker:    broker,
+		publisher: publisher,
 		auth:      auth,
 		twins:     twins,
 		states:    sr,
@@ -136,8 +131,9 @@ func (ts *twinsService) AddTwin(ctx context.Context, token string, twin Twin, de
 
 	twin.Owner = res.GetValue()
 
-	twin.Created = time.Now()
-	twin.Updated = time.Now()
+	t := time.Now()
+	twin.Created = t
+	twin.Updated = t
 
 	if def.Attributes == nil {
 		def.Attributes = []Attribute{}
@@ -181,11 +177,6 @@ func (ts *twinsService) UpdateTwin(ctx context.Context, token string, twin Twin,
 	if twin.Name != "" {
 		revision = true
 		tw.Name = twin.Name
-	}
-
-	if twin.ThingID != "" {
-		revision = true
-		tw.ThingID = twin.ThingID
 	}
 
 	if len(def.Attributes) > 0 {
@@ -236,15 +227,6 @@ func (ts *twinsService) ViewTwin(ctx context.Context, token, id string) (tw Twin
 	return twin, nil
 }
 
-func (ts *twinsService) ViewTwinByThing(ctx context.Context, token, thingid string) (Twin, error) {
-	_, err := ts.auth.Identify(ctx, &mainflux.Token{Value: token})
-	if err != nil {
-		return Twin{}, ErrUnauthorizedAccess
-	}
-
-	return ts.twins.RetrieveByThing(ctx, thingid)
-}
-
 func (ts *twinsService) RemoveTwin(ctx context.Context, token, id string) (err error) {
 	var b []byte
 	defer ts.publish(&id, &err, crudOp["removeSucc"], crudOp["removeFail"], &b)
@@ -279,7 +261,7 @@ func (ts *twinsService) ListStates(ctx context.Context, token string, offset uin
 	return ts.states.RetrieveAll(ctx, offset, limit, id)
 }
 
-func (ts *twinsService) SaveStates(msg *broker.Message) error {
+func (ts *twinsService) SaveStates(msg *messaging.Message) error {
 	ids, err := ts.twins.RetrieveByAttribute(context.TODO(), msg.Channel, msg.Subtopic)
 	if err != nil {
 		return err
@@ -294,7 +276,7 @@ func (ts *twinsService) SaveStates(msg *broker.Message) error {
 	return nil
 }
 
-func (ts *twinsService) saveState(msg *broker.Message, id string) error {
+func (ts *twinsService) saveState(msg *messaging.Message, id string) error {
 	var b []byte
 	var err error
 	defer ts.publish(&id, &err, crudOp["stateSucc"], crudOp["stateFail"], &b)
@@ -336,13 +318,14 @@ func (ts *twinsService) saveState(msg *broker.Message, id string) error {
 	return nil
 }
 
-func prepareState(st *State, tw *Twin, rec senml.Record, msg *broker.Message) int {
+func prepareState(st *State, tw *Twin, rec senml.Record, msg *messaging.Message) int {
 	def := tw.Definitions[len(tw.Definitions)-1]
 	st.TwinID = tw.ID
 	st.Definition = def.ID
 
 	if st.Payload == nil {
 		st.Payload = make(map[string]interface{})
+		st.ID = -1 // state is incremented on save -> zero-based index
 	} else {
 		for k := range st.Payload {
 			idx := findAttribute(k, def.Attributes)
@@ -375,6 +358,7 @@ func prepareState(st *State, tw *Twin, rec senml.Record, msg *broker.Message) in
 			}
 			val := findValue(rec)
 			st.Payload[attr.Name] = val
+
 			break
 		}
 	}
@@ -427,14 +411,15 @@ func (ts *twinsService) publish(twinID *string, err *error, succOp, failOp strin
 		pl = []byte(fmt.Sprintf("{\"deleted\":\"%s\"}", *twinID))
 	}
 
-	mc := broker.Message{
+	msg := messaging.Message{
 		Channel:   ts.channelID,
 		Subtopic:  op,
 		Payload:   pl,
 		Publisher: publisher,
+		Created:   time.Now().UnixNano(),
 	}
 
-	if err := ts.broker.Publish(context.TODO(), "", mc); err != nil {
+	if err := ts.publisher.Publish(msg.Channel, msg); err != nil {
 		ts.logger.Warn(fmt.Sprintf("Failed to publish notification on NATS: %s", err))
 	}
 }

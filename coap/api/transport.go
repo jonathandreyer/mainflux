@@ -18,11 +18,10 @@ import (
 
 	gocoap "github.com/dustin/go-coap"
 	"github.com/go-zoo/bone"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/mainflux/mainflux"
-	"github.com/mainflux/mainflux/broker"
 	"github.com/mainflux/mainflux/coap"
 	log "github.com/mainflux/mainflux/logger"
+	"github.com/mainflux/mainflux/messaging"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -225,21 +224,16 @@ func receive(svc coap.Service, msg *gocoap.Message) *gocoap.Message {
 		return res
 	}
 
-	created, err := ptypes.TimestampProto(time.Now())
-	if err != nil {
-		return nil
-	}
-
-	m := broker.Message{
+	m := messaging.Message{
 		Channel:   chanID,
 		Subtopic:  subtopic,
 		Publisher: publisher,
 		Protocol:  protocol,
 		Payload:   msg.Payload,
-		Created:   created,
+		Created:   time.Now().UnixNano(),
 	}
 
-	if err := svc.Publish(context.Background(), "", m); err != nil {
+	if err := svc.Publish(m); err != nil {
 		res.Code = gocoap.InternalServerError
 	}
 

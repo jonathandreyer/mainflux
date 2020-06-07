@@ -5,7 +5,6 @@ package mocks
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,9 +16,8 @@ import (
 var _ twins.TwinRepository = (*twinRepositoryMock)(nil)
 
 type twinRepositoryMock struct {
-	mu      sync.Mutex
-	counter uint64
-	twins   map[string]twins.Twin
+	mu    sync.Mutex
+	twins map[string]twins.Twin
 }
 
 // NewTwinRepository creates in-memory twin repository.
@@ -83,21 +81,10 @@ func (trm *twinRepositoryMock) RetrieveByAttribute(ctx context.Context, channel,
 		}
 	}
 
-	return ids, nil
-}
-
-func (trm *twinRepositoryMock) RetrieveByThing(_ context.Context, thingid string) (twins.Twin, error) {
-	trm.mu.Lock()
-	defer trm.mu.Unlock()
-
-	for _, twin := range trm.twins {
-		if twin.ThingID == thingid {
-			return twin, nil
-		}
+	if len(ids) > 0 {
+		return ids, nil
 	}
-
-	return twins.Twin{}, twins.ErrNotFound
-
+	return ids, twins.ErrNotFound
 }
 
 func (trm *twinRepositoryMock) RetrieveAll(_ context.Context, owner string, offset uint64, limit uint64, name string, metadata twins.Metadata) (twins.Page, error) {
@@ -110,18 +97,19 @@ func (trm *twinRepositoryMock) RetrieveAll(_ context.Context, owner string, offs
 		return twins.Page{}, nil
 	}
 
-	// This obscure way to examine map keys is enforced by the key structure in mocks/commons.go
-	prefix := fmt.Sprintf("%s-", owner)
 	for k, v := range trm.twins {
 		if (uint64)(len(items)) >= limit {
 			break
 		}
-		if !strings.HasPrefix(k, prefix) {
+		if len(name) > 0 && v.Name != name {
+			continue
+		}
+		if !strings.HasPrefix(k, owner) {
 			continue
 		}
 		suffix := string(v.ID[len(u4Pref):])
 		id, _ := strconv.ParseUint(suffix, 10, 64)
-		if id > offset && id <= uint64(offset+limit) {
+		if id > offset && id <= offset+limit {
 			items = append(items, v)
 		}
 	}
@@ -130,10 +118,11 @@ func (trm *twinRepositoryMock) RetrieveAll(_ context.Context, owner string, offs
 		return items[i].ID < items[j].ID
 	})
 
+	total := uint64(len(trm.twins))
 	page := twins.Page{
 		Twins: items,
 		PageMetadata: twins.PageMetadata{
-			Total:  trm.counter,
+			Total:  total,
 			Offset: offset,
 			Limit:  limit,
 		},
@@ -149,6 +138,7 @@ func (trm *twinRepositoryMock) Remove(ctx context.Context, id string) error {
 	for k, v := range trm.twins {
 		if id == v.ID {
 			delete(trm.twins, k)
+			return nil
 		}
 	}
 
